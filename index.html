@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>codebits 码字位流台</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#0e1620;color:#d5e3f0}
+main{max-width:1020px;margin:0 auto;padding:16px}
+h1{font-size:17px;margin:4px 0 12px;color:#e8f2fb}
+.panel{background:#152130;border:1px solid #26384c;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+textarea{width:100%;min-height:58px;background:#0b1320;color:#cfe3f5;border:1px solid #2a3f57;
+ border-radius:8px;font:13px/1.5 ui-monospace,monospace;padding:8px;box-sizing:border-box}
+.bar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:10px}
+button{font:inherit;padding:5px 12px;border:1px solid #2f6f8f;border-radius:8px;background:#17364c;
+ color:#cfe9f7;cursor:pointer}
+.chip{background:#102238;border:1px solid #27435f;border-radius:7px;padding:3px 8px;font-size:12px}
+.chip b{color:#7fd7ff;font-weight:600}
+.chip.bad{background:#3a1d22;border-color:#7d3a44;color:#ffc9d0}
+.cards{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.card{border:1px solid #27435f;border-radius:7px;padding:3px 7px;font:12px/1.4 ui-monospace,monospace;
+ background:#101c2b}
+.card .sym{color:#ffd479;font-weight:600}
+.card .cnt{color:#7f93a8}
+.card .cod{color:#8ce8b0}
+.strip{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.grp{border:1px solid #2b4a68;border-radius:6px;padding:2px 3px;position:relative}
+.grp .tag{position:absolute;top:-9px;left:3px;font:10px/1 ui-monospace,monospace;color:#8fb2cd;
+ background:#152130;padding:0 2px;border-radius:3px}
+.bit{display:inline-block;width:11px;height:15px;line-height:15px;text-align:center;
+ font:10px/15px ui-monospace,monospace;color:#04121d;border-radius:2px;margin-top:2px}
+.byte{display:inline-block;min-width:20px;height:18px;line-height:18px;text-align:center;margin:2px 1px;
+ font:11px/18px ui-monospace,monospace;background:#1d3149;border:1px solid #2c4a68;border-radius:3px}
+.byte.pad{background:#4a3220;border-color:#8a5a2a;color:#ffd9a8}
+.mono{font:12px/1.6 ui-monospace,monospace;color:#9fc3dd;word-break:break-all;
+ background:#0b1320;border:1px solid #22364c;border-radius:8px;padding:8px}
+#log{font-size:12px;color:#7f93a8;margin-top:8px;min-height:16px}
+</style></head>
+<body>
+<main>
+  <h1>码字位流台</h1>
+  <div class="panel">
+    <textarea id="text" spellcheck="false"></textarea>
+    <div class="bar">
+      <button id="rebuild">重新建树编码</button>
+      <button id="restore">还原样例</button>
+      <span id="chips" class="bar"></span>
+    </div>
+    <div id="log">改文本后点重新建树编码，看码卡、位流与字节怎么变。</div>
+  </div>
+  <div class="panel">
+    <div class="chip"><b>码卡行</b>（按出现次数降序）</div>
+    <div id="cards" class="cards"></div>
+  </div>
+  <div class="panel">
+    <div class="chip"><b>位流分组带</b>（每格一位，按字符分组，组牌是字符）</div>
+    <div id="strip" class="strip"></div>
+  </div>
+  <div class="panel">
+    <div class="chip"><b>打包字节</b>（十六进制，橙色是补位）</div>
+    <div id="bytes"></div>
+    <div style="margin-top:10px" class="chip"><b>树形</b>（括号串，叶子是字符）</div>
+    <div id="tree" class="mono"></div>
+  </div>
+</main>
+<script id="scene" type="application/json">{
+  "text": "the quick brown fox jumps over the lazy dog; the lazy dog naps while the quick fox jumps again and again over five small stones and pebbles"
+}</script>
+<script type="module">
+import { render } from "./app.js";
+
+const scene = JSON.parse(document.getElementById("scene").textContent);
+const area = document.getElementById("text");
+const cards = document.getElementById("cards");
+const strip = document.getElementById("strip");
+const byteRow = document.getElementById("bytes");
+const treeBox = document.getElementById("tree");
+const chips = document.getElementById("chips");
+const log = document.getElementById("log");
+
+function glyph(text) {
+  if (text === " ") { return "␣"; }
+  if (text === "\n") { return "换行"; }
+  return text;
+}
+
+function hue(index) {
+  return "hsl(" + String((index * 47) % 360) + ", 62%, 58%)";
+}
+
+function chip(text, bad) {
+  const span = document.createElement("span");
+  span.className = bad ? "chip bad" : "chip";
+  span.textContent = text;
+  return span;
+}
+
+function draw() {
+  const view = render({ text: area.value });
+  chips.textContent = "";
+  chips.appendChild(chip("字母表 " + view.alphabet_size));
+  chips.appendChild(chip("字符数 " + view.text.length));
+  chips.appendChild(chip("位串长 " + view.bit_length));
+  chips.appendChild(chip("字节数 " + view.bytes.length));
+  chips.appendChild(chip("补位 " + view.pad));
+  chips.appendChild(chip("加权路径长 " + view.weighted));
+  chips.appendChild(chip("平均码长千分 " + view.avg_milli));
+  chips.appendChild(chip("最长码长 " + view.max_len));
+  chips.appendChild(chip("最短码长 " + view.min_len));
+  chips.appendChild(chip("克拉夫特和成立 " + (view.kraft ? "是" : "否"), !view.kraft));
+  chips.appendChild(chip("前缀无关 " + (view.prefix_free ? "是" : "否"), !view.prefix_free));
+  chips.appendChild(chip("解包回原位串 " + (view.unpack_ok ? "是" : "否"), !view.unpack_ok));
+  chips.appendChild(chip("解码回文一致 " + (view.decoded_ok ? "是" : "否"), !view.decoded_ok));
+
+  const sorted = view.pairs.slice().sort(function (left, right) {
+    return (right[1] - left[1]) || (left[0] < right[0] ? -1 : 1);
+  });
+  cards.textContent = "";
+  const codes = {};
+  view.table.forEach(function (pair) { codes[pair[0]] = pair[1]; });
+  sorted.forEach(function (pair) {
+    const card = document.createElement("span");
+    card.className = "card";
+    card.innerHTML = "<span class='sym'></span> <span class='cnt'></span> <span class='cod'></span>";
+    card.querySelector(".sym").textContent = glyph(pair[0]);
+    card.querySelector(".cnt").textContent = String(pair[1]);
+    card.querySelector(".cod").textContent = codes[pair[0]] === undefined ? "无" : codes[pair[0]];
+    cards.appendChild(card);
+  });
+
+  strip.textContent = "";
+  const limit = Math.min(view.text.length, 140);
+  for (let at = 0; at < limit; at += 1) {
+    const symbol = view.text.charAt(at);
+    const code = codes[symbol];
+    const group = document.createElement("span");
+    group.className = "grp";
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = glyph(symbol);
+    group.appendChild(tag);
+    const text = typeof code === "string" ? code : "";
+    for (let index = 0; index < text.length; index += 1) {
+      const cell = document.createElement("span");
+      cell.className = "bit";
+      cell.style.background = hue(at);
+      cell.textContent = text.charAt(index);
+      group.appendChild(cell);
+    }
+    strip.appendChild(group);
+  }
+  if (view.text.length > limit) {
+    const more = document.createElement("span");
+    more.className = "chip";
+    more.textContent = "后面还有 " + String(view.text.length - limit) + " 个字符没画";
+    strip.appendChild(more);
+  }
+
+  byteRow.textContent = "";
+  view.bytes.forEach(function (value, index) {
+    const cell = document.createElement("span");
+    cell.className = "byte";
+    const text = Number(value).toString(16);
+    cell.textContent = text.length < 2 ? "0" + text : text;
+    if (view.pad > 0 && index === view.bytes.length - 1) { cell.className = "byte pad"; }
+    byteRow.appendChild(cell);
+  });
+
+  treeBox.textContent = view.tree_text;
+  log.textContent = "码表 " + String(view.table.length) + " 项，位串 " + String(view.bit_length)
+    + " 位装进 " + String(view.bytes.length) + " 字节，补 " + String(view.pad) + " 位。";
+}
+
+document.getElementById("rebuild").addEventListener("click", draw);
+document.getElementById("restore").addEventListener("click", function () {
+  area.value = scene.text;
+  draw();
+});
+
+area.value = scene.text;
+draw();
+</script>
+</body>
+</html>
